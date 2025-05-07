@@ -5,9 +5,16 @@ import {
   text,
   primaryKey,
   integer,
-  json,
+  vector,
+  customType,
 } from "drizzle-orm/pg-core";
 import { AdapterAccount } from "next-auth/adapters";
+
+const bytea = customType<{ data: Buffer; notNull: false; default: false }>({
+  dataType() {
+    return "bytea";
+  },
+});
 
 export const users = pgTable("user", {
   id: text("id")
@@ -92,40 +99,39 @@ export const authenticators = pgTable(
   ]
 );
 
-// Podcast table with array columns for tags and categories
-export const podcasts = pgTable("podcast", {
-  id: text("id")
-    .primaryKey()
-    .$defaultFn(() => crypto.randomUUID()),
-  name: text("name").notNull(),
-  url: text("url").notNull(),
-  description: text("description"),
-  tags: text("tags"),
-  categories: text("categories"),
-  generatedById: text("generated_by_id").references(() => users.id, {
-    onDelete: "set null",
-  }),
-  createdAt: timestamp("created_at", { mode: "date" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-});
+export const podcasts = pgTable(
+  "podcast",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    name: text("name").notNull(),
+    url: text("url").notNull(),
+    description: text("description"),
+    tags: text("tags"),
+    generatedById: text("generated_by_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    embedding: vector("embedding", { dimensions: 1536 }).notNull(),
+    createdAt: timestamp("created_at", { mode: "date" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    embeddingIndex: index("embeddingIndex").using(
+      "hnsw",
+      table.embedding.op("vector_cosine_ops")
+    ),
+  })
+);
 
-// Playlist table to store user playlists
-export const playlists = pgTable("playlist", {
+// New table to store podcast audio data
+export const podcastAudio = pgTable("podcast_audio", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => crypto.randomUUID()),
-  name: text("name").notNull(),
-  description: text("description"),
-  userId: text("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  podcastIds: json("podcast_ids").$type<string[]>().default([]),
+  audioData: bytea("audio_data").notNull(),
   createdAt: timestamp("created_at", { mode: "date" })
     .notNull()
     .$defaultFn(() => new Date()),
-  updatedAt: timestamp("updated_at", { mode: "date" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-  isPublic: boolean("is_public").default(false),
 });

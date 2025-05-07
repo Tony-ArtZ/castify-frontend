@@ -1,36 +1,81 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Castify - AI Podcast Creation Platform
+
+Built by Team Neurocraft for the MIT Hackathon, Castify is an advanced AI-powered podcast creation platform that transforms text into engaging multi-speaker audio content.
+
+## Project Overview
+
+Castify leverages cutting-edge AI to revolutionize podcast creation:
+
+- **AI-Generated Conversations**: Create natural-sounding podcasts with multiple distinct voices from simple text prompts
+- **PDF Content Analysis**: Upload PDF documents and our system will extract and analyze the content to create relevant podcasts
+- **Text Embeddings**: Utilizes OpenAI embeddings for semantic understanding and intelligent content recommendations
+- **Smart Recommendations**: Discover related podcasts through our sophisticated embedding-based recommendation system
+
+## Key Technical Features
+
+### 1. Multi-Speaker Voice Synthesis
+The platform uses the latest TTS (Text-to-Speech) models to generate natural-sounding conversations between multiple AI speakers, creating dynamic and engaging podcast content.
+
+### 2. PDF Processing Pipeline
+- Upload PDF documents
+- Extract and process text content
+- Enhance prompts with document context
+- Generate topic-appropriate podcast conversations
+
+### 3. Advanced AI Integration
+- OpenAI GPT-4o for conversation generation
+- Embedding models for semantic understanding
+- Voice synthesis for natural-sounding audio
+
+### 4. Recommendation System
+Our embedding-based recommendation engine analyzes podcast content to suggest similar topics based on semantic similarity rather than just keywords.
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+- Node.js 16.0 or later
+- An OpenAI API key for AI functionality
+- Environment variables configured (see Configuration section)
+
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/neurocraft/mit-spotify.git
+cd mit-spotify
+
+# Install dependencies
+npm install
+# or
+yarn install
+```
+
+### Running the Development Server
 
 ```bash
 npm run dev
 # or
 yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the application.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Configuration
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Create a `.env.local` file in the root directory with the following variables:
 
-## Learn More
+```
+# Authentication
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=your_nextauth_secret
 
-To learn more about Next.js, take a look at the following resources:
+# OpenAI API
+OPENAI_API_KEY=your_openai_api_key
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# Database
+DATABASE_URL=your_database_connection_string
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Team Neurocraft
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Built with passion for the MIT Hackathon by Team Neurocraft, a group of developers, AI specialists, and UX designers committed to pushing the boundaries of AI-assisted content creation.

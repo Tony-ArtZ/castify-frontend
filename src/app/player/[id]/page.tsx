@@ -3,6 +3,9 @@ import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { useParams, useRouter } from "next/navigation";
 import AudioSpectrum from "react-audio-spectrum";
+import { getPodcastAudio } from "@/actions/getPodcast";
+import { getRecommendations } from "@/actions/getRecommendations";
+import Image from "next/image";
 
 // Task response interface
 interface TaskResponse {
@@ -48,84 +51,94 @@ function WavPlayer({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState<string>("Loading...");
 
-  // Fetch task status on component mount
+  // New state for user info, description and recommendations
+  const [userName, setUserName] = useState<string>("");
+  const [userPhoto, setUserPhoto] = useState<string | null>(null);
+  const [description, setDescription] = useState<string>("");
+  const [tags, setTags] = useState<string>("");
+  const [recommendations, setRecommendations] = useState<any[]>([]);
+  const [loadingRecommendations, setLoadingRecommendations] = useState(false);
+
+  // Fetch audio data using getPodcastAudio instead of external API
   useEffect(() => {
-    const fetchTaskStatus = async () => {
+    const fetchAudioData = async () => {
       try {
         setLoading(true);
         setError(null);
 
-        // Fetch task status from the backend
-        const response = await fetch(`http://localhost:5000/audio/${id}`);
+        // Fetch audio data using the server action
+        const res = await getPodcastAudio(id);
 
-        if (!response.ok) {
-          throw new Error(
-            `Failed to fetch task status: ${response.statusText}`
-          );
+        if (!res || !res.data) {
+          throw new Error("Audio data not found");
         }
 
-        // Check content type before parsing
-        const contentType = response.headers.get("Content-Type") || "";
+        // Create a data URL from the base64 string
+        const dataUrl = `data:audio/mpeg;base64,${res.data}`;
+        // Convert to Blob using fetch API
+        const audioBlob = await fetch(dataUrl).then((r) => r.blob());
+        const url = URL.createObjectURL(audioBlob);
 
-        if (contentType.includes("application/json")) {
-          // Handle JSON response
-          const data: TaskResponse = await response.json();
-          setTaskInfo(data);
+        setAudioUrl(url);
+        setTaskInfo({
+          id: id,
+          status: "COMPLETED",
+          created_at: new Date().toISOString(),
+          result: {
+            audio_url: url,
+            message: "Audio retrieved successfully",
+          },
+        });
 
-          // Check if task is completed and has audio URL
-          if (data.status === "COMPLETED" && data.result?.audio_url) {
-            // Set the full audio URL with the server base URL
-            setAudioUrl(`http://localhost:5000${data.result.audio_url}`);
-
-            // Extract a title from the audio URL
-            const audioFileName =
-              data.result.audio_url.split("/").pop() || "Audio";
-            setTitle(decodeURIComponent(audioFileName).replace(/_/g, " "));
-          } else if (data.status === "FAILED") {
-            setError(data.error || "Task processing failed");
-          } else if (["PENDING", "PROCESSING"].includes(data.status)) {
-            setError(
-              "Audio is still being processed. Please check back later."
-            );
-          }
-        } else if (contentType.includes("audio/")) {
-          // Handle direct audio file response
-          const blob = await response.blob();
-          const audioUrl = URL.createObjectURL(blob);
-
-          setAudioUrl(audioUrl);
-          setTaskInfo({
-            id: id as string,
-            status: "COMPLETED",
-            created_at: new Date().toISOString(),
-            result: {
-              audio_url: audioUrl,
-              message: "Audio retrieved successfully",
-            },
-          });
-
-          // Extract title from URL or use ID
-          const filename = id.toString().split("-").pop() || "Audio Track";
-          setTitle(filename.replace(/_/g, " "));
-        } else {
-          throw new Error(`Unexpected content type: ${contentType}`);
-        }
+        // Set all the additional information
+        setTitle(res.name || "Audio Track");
+        setDescription(res.description || "");
+        setUserName(res.userName || "Unknown");
+        setUserPhoto(res.userPhoto || null);
+        setTags(res.tags || "");
       } catch (err) {
         setError(
-          err instanceof Error
-            ? err.message
-            : "Failed to fetch task information"
+          err instanceof Error ? err.message : "Failed to fetch audio data"
         );
-        console.error("Error fetching task:", err);
+        console.error("Error fetching audio:", err);
       } finally {
         setLoading(false);
       }
     };
 
     if (id) {
-      fetchTaskStatus();
+      fetchAudioData();
     }
+
+    // Cleanup ObjectURL on component unmount
+    return () => {
+      if (audioUrl) {
+        URL.revokeObjectURL(audioUrl);
+      }
+    };
   }, [id]);
+
+  // Fetch recommendations when tags are available
+  useEffect(() => {
+    const fetchRecommendations = async () => {
+      if (!tags) return;
+
+      try {
+        setLoadingRecommendations(true);
+        const recs = await getRecommendations(tags);
+        if (recs) {
+          // Filter out the current podcast
+          setRecommendations(recs.filter((rec) => rec.id !== id));
+        }
+      } catch (err) {
+        console.error("Error fetching recommendations:", err);
+      } finally {
+        setLoadingRecommendations(false);
+      }
+    };
+
+    fetchRecommendations();
+  }, [tags, id]);
 
   // Setup audio element when audio URL is available
   useEffect(() => {
@@ -214,20 +227,58 @@ function WavPlayer({ id }: { id: string }) {
         transition={{ duration: 0.6, ease: "easeOut" }}
         className="w-full max-w-4xl rounded-xl bg-card/80 backdrop-blur-xl shadow-2xl p-6 border border-primary/10"
       >
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-foreground mb-1">
-            Now Playing
-          </h1>
-          <p className="text-primary text-lg">{title}</p>
-
-          {/* Task status info */}
-          {taskInfo && taskInfo.status !== "COMPLETED" && (
-            <div className="mt-2 text-sm text-muted-foreground">
-              Status: <span className="text-primary">{taskInfo.status}</span>
+        <div className="flex items-center mb-8">
+          {/* User info with image - fixed for mobile */}
+          <div className="flex items-center mr-auto">
+            {userPhoto ? (
+              <div className="relative w-12 h-12 rounded-full overflow-hidden mr-4 border border-primary/20 flex-shrink-0">
+                <Image
+                  src={userPhoto}
+                  alt={userName}
+                  fill
+                  sizes="48px"
+                  className="object-cover"
+                  style={{ aspectRatio: "1/1" }}
+                />
+              </div>
+            ) : (
+              <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center text-primary mr-4 flex-shrink-0">
+                {userName.charAt(0)}
+              </div>
+            )}
+            <div>
+              <p className="text-muted-foreground text-sm">Created by</p>
+              <p className="font-medium text-foreground">{userName}</p>
             </div>
-          )}
+          </div>
+
+          {/* Podcast title */}
+          <div className="text-center">
+            <h1 className="text-3xl font-bold text-foreground mb-1">
+              Now Playing
+            </h1>
+            <p className="text-primary text-lg">{title}</p>
+          </div>
         </div>
 
+        {/* Description */}
+        {description && (
+          <div className="mb-6 p-4 bg-background/40 rounded-lg text-foreground/80">
+            <h3 className="text-sm font-medium text-primary mb-2">
+              About this podcast
+            </h3>
+            <p className="text-sm">{description}</p>
+          </div>
+        )}
+
+        {/* Task status info */}
+        {taskInfo && taskInfo.status !== "COMPLETED" && (
+          <div className="mt-2 text-sm text-muted-foreground">
+            Status: <span className="text-primary">{taskInfo.status}</span>
+          </div>
+        )}
+
+        {/* Audio and player controls */}
         <audio
           ref={audioRef}
           preload="auto"
@@ -541,31 +592,26 @@ function WavPlayer({ id }: { id: string }) {
                   : "hover:text-primary"
               }`}
               disabled={!audioUrl || !!error}
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={1.5}
-                  d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
-                />
-              </svg>
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: !audioUrl || error ? 1 : 1.2 }}
-              whileTap={{ scale: !audioUrl || error ? 1 : 0.9 }}
-              className={`text-muted-foreground transition-colors ${
-                !audioUrl || error
-                  ? "opacity-30 cursor-not-allowed"
-                  : "hover:text-primary"
-              }`}
-              disabled={!audioUrl || !!error}
+              onClick={() => {
+                if (navigator.share) {
+                  navigator
+                    .share({
+                      title: title,
+                      text: description || `Listen to ${title}`,
+                      url: window.location.href,
+                    })
+                    .catch((err) => console.error("Error sharing:", err));
+                } else {
+                  // Fallback to copying the URL
+                  navigator.clipboard
+                    .writeText(window.location.href)
+                    .then(() => {
+                      // Optional: Show a toast/notification that URL was copied
+                      alert("Link copied to clipboard!");
+                    })
+                    .catch((err) => console.error("Error copying URL:", err));
+                }
+              }}
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -584,6 +630,75 @@ function WavPlayer({ id }: { id: string }) {
             </motion.button>
           </div>
         </div>
+
+        {/* Recommendations Section */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: "easeOut", delay: 0.3 }}
+          className="w-full max-w-4xl mt-8 rounded-xl bg-card/80 backdrop-blur-xl shadow-xl p-6 border border-primary/10"
+        >
+          <h2 className="text-2xl font-semibold text-foreground mb-4">
+            Recommended Podcasts
+            {tags && (
+              <span className="text-sm text-primary ml-2 font-normal">
+                based on{" "}
+                {tags
+                  .split(",")
+                  .map((tag) => `#${tag.trim()}`)
+                  .join(", ")}
+              </span>
+            )}
+          </h2>
+
+          {loadingRecommendations ? (
+            <div className="flex justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-primary"></div>
+            </div>
+          ) : recommendations.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {recommendations.map((rec) => (
+                <motion.a
+                  key={rec.id}
+                  href={`/player/${rec.id}`}
+                  className="p-4 bg-background/50 hover:bg-background/70 rounded-lg border border-primary/10 transition-colors flex items-start"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  <div className="h-10 w-10 rounded-md bg-primary/20 flex items-center justify-center text-primary mr-3">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M12 2v8"></path>
+                      <circle cx="12" cy="14" r="4"></circle>
+                      <path d="M12 22v-4"></path>
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-medium text-foreground line-clamp-1">
+                      {rec.name}
+                    </h3>
+                    <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
+                      {rec.description}
+                    </p>
+                  </div>
+                </motion.a>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              No similar podcasts found
+            </div>
+          )}
+        </motion.div>
       </motion.div>
     </div>
   );

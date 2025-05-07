@@ -1,125 +1,26 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { motion } from "motion/react";
-import { FiUpload, FiFile, FiDownload } from "react-icons/fi";
+import { FiUpload, FiFile } from "react-icons/fi";
 import { FaSpotify } from "react-icons/fa";
 import { useRouter } from "next/navigation";
 import { createPodcast } from "@/actions/createPodcast";
+// Import our new server action instead of the client-side function
+import { extractTextFromPDF } from "@/actions/processPdf";
 
-// API status types
-type TaskStatus =
-  | "IDLE"
-  | "UPLOADING"
-  | "PENDING"
-  | "PROCESSING"
-  | "SUCCESS"
-  | "FAILURE";
-
-// Status response type
-interface StatusResponse {
-  state: string;
-  status?: string;
-  result?: {
-    audio_url: string;
-  };
-}
+// Simplified status types
+type Status = "IDLE" | "PROCESSING" | "SUCCESS" | "FAILURE";
 
 const Page = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [prompt, setPrompt] = useState("");
-  const [taskStatus, setTaskStatus] = useState<TaskStatus>("IDLE");
-  const [taskId, setTaskId] = useState<string | null>(null);
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [status, setStatus] = useState<Status>("IDLE");
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const router = useRouter();
-
-  //   const { data: session } = useSession();
-  //   useEffect(() => {
-  //     if (!session) {
-  //       router.push("/register");
-  //     }
-  //   }, [session, router]);
-
-  // Clean up polling on unmount
-  useEffect(() => {
-    return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-      }
-    };
-  }, []);
-
-  // Poll for status updates when we have a task ID
-  useEffect(() => {
-    if (!taskId || taskStatus === "SUCCESS" || taskStatus === "FAILURE") {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
-      }
-      return;
-    }
-
-    const pollStatus = async () => {
-      try {
-        const response = await fetch(`http://localhost:5000/status/${taskId}`);
-        const data: StatusResponse = await response.json();
-
-        if (data.status === "PENDING" || data.status === "PROCESSING") {
-          setTaskStatus(data.status === "PENDING" ? "PENDING" : "PROCESSING");
-          setStatusMessage(
-            data.status === "PROCESSING"
-              ? "Processing your content..."
-              : "Waiting for processing to begin..."
-          );
-        } else if (data.status === "COMPLETED") {
-          setTaskStatus("SUCCESS");
-          await createPodcast(
-            data.result?.audio_url.split("/")[2] || "",
-            prompt
-          );
-          if (data.result?.audio_url) {
-            setAudioUrl(`${data.result.audio_url.split("/")[2]}`);
-          }
-          // Stop polling once successful
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current);
-            pollingIntervalRef.current = null;
-          }
-        } else if (data.status === "FAILED") {
-          setTaskStatus("FAILURE");
-          setError(data.result?.error || "An error occurred during processing");
-          // Stop polling on failure
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current);
-            pollingIntervalRef.current = null;
-          }
-        }
-      } catch (err) {
-        console.error("Error polling status:", err);
-        setError("Failed to check processing status. Please try again.");
-        setTaskStatus("FAILURE");
-        if (pollingIntervalRef.current) {
-          clearInterval(pollingIntervalRef.current);
-          pollingIntervalRef.current = null;
-        }
-      }
-    };
-
-    // Start polling
-    pollStatus(); // Poll immediately
-    pollingIntervalRef.current = setInterval(pollStatus, 2000); // Then every 2 seconds
-
-    return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-      }
-    };
-  }, [taskId, taskStatus]);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -152,16 +53,9 @@ const Page = () => {
     fileInputRef.current?.click();
   };
 
-  const downloadAudio = () => {
-    if (audioUrl) {
-      router.push("/player/" + audioUrl);
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Changed condition to only require prompt
     if (!prompt) {
       setError("Please enter a prompt");
       return;
@@ -170,57 +64,65 @@ const Page = () => {
     try {
       // Reset states
       setError(null);
-      setTaskStatus("UPLOADING");
-      setStatusMessage("Uploading your request...");
+      setStatus("PROCESSING");
+      setStatusMessage("Creating your podcast...");
 
-      // Get the form element from the event
-      const form = e.target as HTMLFormElement;
-      const formData = new FormData(form);
+      // Process file through RAG if available
+      let enhancedPrompt = prompt;
+      if (file) {
+        try {
+          setStatusMessage("Processing PDF content...");
+          // Use the server action to extract text from PDF
+          const formData = new FormData();
+          formData.append("pdf", file);
 
-      // Ensure prompt is added (it should already be there from the form, but just to be safe)
-      formData.set("prompt", prompt);
+          // Call the server action
+          const result = await extractTextFromPDF(formData);
 
-      // Only append file if one is selected and it's not already in the form
-      if (file && !formData.has("file")) {
-        formData.append("file", file);
+          if (result.success && result.text) {
+            enhancedPrompt = `Based on the following document: ${result.text}\n\nPrompt: ${prompt}`;
+            console.log("PDF processed successfully:", result.text);
+            setStatusMessage("PDF processed successfully, creating podcast...");
+          } else if (result.error) {
+            console.error("PDF processing error:", result.error);
+            // Continue with just the prompt if PDF processing fails
+            setStatusMessage(
+              "PDF processing had issues, continuing with basic prompt..."
+            );
+          }
+        } catch (error) {
+          console.error("Error processing PDF:", error);
+          // Continue with just the prompt if PDF processing fails
+        }
       }
 
-      // Update API URL to include correct port 5000
-      const response = await fetch("http://localhost:5000/upload", {
-        method: "POST",
-        // Don't set Content-Type header - fetch will automatically set it with the correct boundary
-        // when using FormData
-        body: formData,
-      });
+      // Call the createPodcast function directly
+      const result = await createPodcast(enhancedPrompt);
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Upload failed");
+      if (result.success && result.id) {
+        setStatus("SUCCESS");
+        setStatusMessage("Podcast created successfully!");
+        // Navigate to player page with the podcast ID
+        router.push(`/player/${result.id}`);
+      } else {
+        throw new Error(result.message || "Failed to create podcast");
       }
-
-      const data = await response.json();
-      setTaskId(data.task_id);
-      setTaskStatus("PENDING");
     } catch (err) {
-      console.error("Upload error:", err);
+      console.error("Podcast creation error:", err);
       setError(
         err instanceof Error ? err.message : "An unknown error occurred"
       );
-      setTaskStatus("FAILURE");
+      setStatus("FAILURE");
     }
   };
 
   // Determine button text based on status
   const getButtonText = () => {
-    switch (taskStatus) {
-      case "UPLOADING":
-        return "Uploading...";
-      case "PENDING":
-        return "Processing...";
+    switch (status) {
       case "PROCESSING":
-        return "Processing...";
+        return "Creating...";
       case "SUCCESS":
-        return "Play";
+        return "Success!";
       case "FAILURE":
         return "Try Again";
       default:
@@ -232,7 +134,7 @@ const Page = () => {
   const getBarAnimations = (index: number) => {
     const baseDelay = index * 0.1;
 
-    if (taskStatus === "IDLE") {
+    if (status === "IDLE") {
       return {
         height: [12, 24, 12],
         transition: {
@@ -241,17 +143,7 @@ const Page = () => {
           delay: baseDelay,
         },
       };
-    } else if (["UPLOADING", "PENDING"].includes(taskStatus)) {
-      // More active, faster animation during upload/pending
-      return {
-        height: [5, 30, 5],
-        transition: {
-          duration: 0.6,
-          repeat: Infinity,
-          delay: baseDelay,
-        },
-      };
-    } else if (taskStatus === "PROCESSING") {
+    } else if (status === "PROCESSING") {
       // Most active during processing
       return {
         height: [8, 38, 8],
@@ -261,7 +153,7 @@ const Page = () => {
           delay: baseDelay,
         },
       };
-    } else if (taskStatus === "SUCCESS") {
+    } else if (status === "SUCCESS") {
       // Celebratory wave on success
       return {
         height: [10, 25, 10],
@@ -285,30 +177,21 @@ const Page = () => {
     }
   };
 
-  // Update button disabled state to make file optional
-  // This should be in your render section near the button
   const renderSubmitButton = () => (
     <motion.button
-      type={taskStatus === "SUCCESS" ? "button" : "submit"}
+      type="submit"
       className={`w-full py-3 px-6 rounded-full font-medium flex items-center justify-center ${
-        taskStatus === "SUCCESS"
+        status === "SUCCESS"
           ? "bg-chart-2 text-white"
-          : taskStatus === "FAILURE"
+          : status === "FAILURE"
           ? "bg-destructive/90 text-white"
           : "bg-primary text-primary-foreground"
       }`}
-      // Only require prompt, file is optional now
-      disabled={
-        !prompt ||
-        (taskStatus !== "IDLE" &&
-          taskStatus !== "SUCCESS" &&
-          taskStatus !== "FAILURE")
-      }
+      disabled={!prompt || (status !== "IDLE" && status !== "FAILURE")}
       whileHover={{ scale: 1.03 }}
       whileTap={{ scale: 0.97 }}
-      onClick={taskStatus === "SUCCESS" ? downloadAudio : undefined}
     >
-      {["UPLOADING", "PENDING", "PROCESSING"].includes(taskStatus) ? (
+      {status === "PROCESSING" ? (
         <div className="flex items-center">
           <motion.div
             className="h-4 w-4 rounded-full bg-primary-foreground mr-2"
@@ -321,10 +204,7 @@ const Page = () => {
           {getButtonText()}
         </div>
       ) : (
-        <>
-          {taskStatus === "SUCCESS" && <FiDownload className="mr-2" />}
-          {getButtonText()}
-        </>
+        getButtonText()
       )}
     </motion.button>
   );
@@ -350,10 +230,8 @@ const Page = () => {
         </motion.div>
       )}
 
-      {/* Updated form with encType attribute */}
       <motion.form
         onSubmit={handleSubmit}
-        encType="multipart/form-data"
         className="w-full max-w-xl"
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -364,25 +242,24 @@ const Page = () => {
           className={`border-2 border-dashed rounded-xl p-10 mb-6 text-center transition-colors ${
             isDragging
               ? "border-primary bg-primary/10"
-              : taskStatus === "SUCCESS"
+              : status === "SUCCESS"
               ? "border-chart-2 bg-chart-2/5"
               : "border-border hover:border-primary/50"
           }`}
-          onDragOver={taskStatus === "IDLE" ? handleDragOver : undefined}
-          onDragLeave={taskStatus === "IDLE" ? handleDragLeave : undefined}
-          onDrop={taskStatus === "IDLE" ? handleDrop : undefined}
-          onClick={taskStatus === "IDLE" ? triggerFileInput : undefined}
-          whileHover={taskStatus === "IDLE" ? { scale: 1.01 } : {}}
-          whileTap={taskStatus === "IDLE" ? { scale: 0.99 } : {}}
+          onDragOver={status === "IDLE" ? handleDragOver : undefined}
+          onDragLeave={status === "IDLE" ? handleDragLeave : undefined}
+          onDrop={status === "IDLE" ? handleDrop : undefined}
+          onClick={status === "IDLE" ? triggerFileInput : undefined}
+          whileHover={status === "IDLE" ? { scale: 1.01 } : {}}
+          whileTap={status === "IDLE" ? { scale: 0.99 } : {}}
         >
           <input
             type="file"
-            name="file" // Important: add name attribute for form submission
             accept=".pdf"
             className="hidden"
             ref={fileInputRef}
             onChange={handleFileChange}
-            disabled={taskStatus !== "IDLE" && taskStatus !== "FAILURE"}
+            disabled={status !== "IDLE" && status !== "FAILURE"}
           />
 
           {file ? (
@@ -392,31 +269,15 @@ const Page = () => {
               className="flex flex-col items-center"
             >
               <div className="w-16 h-16 bg-card rounded-lg flex items-center justify-center mb-2">
-                {taskStatus === "SUCCESS" ? (
-                  <FiDownload className="text-chart-2 text-3xl" />
-                ) : (
-                  <FiFile className="text-primary text-3xl" />
-                )}
+                <FiFile className="text-primary text-3xl" />
               </div>
               <p className="text-foreground font-medium text-lg">{file.name}</p>
               <p className="text-muted-foreground text-sm">
                 {(file.size / (1024 * 1024)).toFixed(2)} MB
               </p>
 
-              {taskStatus !== "IDLE" && taskStatus !== "FAILURE" && (
+              {status === "PROCESSING" && (
                 <p className="text-primary mt-2">{statusMessage}</p>
-              )}
-
-              {taskStatus === "SUCCESS" && (
-                <motion.button
-                  type="button"
-                  onClick={downloadAudio}
-                  className="mt-4 bg-chart-2 text-white px-4 py-2 rounded-full flex items-center"
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <FiDownload className="mr-2" /> Download Audio
-                </motion.button>
               )}
             </motion.div>
           ) : (
@@ -438,7 +299,7 @@ const Page = () => {
           )}
         </motion.div>
 
-        {/* Prompt Input Area - Updated to indicate it's required */}
+        {/* Prompt Input Area */}
         <motion.div
           className="mb-6"
           initial={{ opacity: 0, y: 20 }}
@@ -454,12 +315,12 @@ const Page = () => {
           <div className="relative">
             <textarea
               id="prompt"
-              name="prompt" // Important: add name attribute for form submission
+              name="prompt"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               className="w-full p-4 rounded-xl bg-card text-foreground border border-border focus:border-primary focus:ring-1 focus:ring-primary transition-all resize-none min-h-[120px]"
               placeholder="What topics would you like to learn about today?"
-              disabled={taskStatus !== "IDLE" && taskStatus !== "FAILURE"}
+              disabled={status !== "IDLE" && status !== "FAILURE"}
             />
             <motion.div
               className="absolute bottom-3 right-3 h-1 bg-primary rounded-full"
@@ -472,7 +333,7 @@ const Page = () => {
           </div>
         </motion.div>
 
-        {/* Use the updated submit button */}
+        {/* Submit button */}
         {renderSubmitButton()}
       </motion.form>
 
@@ -487,9 +348,9 @@ const Page = () => {
           <motion.div
             key={i}
             className={`w-1 ${
-              taskStatus === "SUCCESS"
+              status === "SUCCESS"
                 ? "bg-chart-2"
-                : taskStatus === "FAILURE"
+                : status === "FAILURE"
                 ? "bg-destructive/70"
                 : "bg-primary"
             }`}
