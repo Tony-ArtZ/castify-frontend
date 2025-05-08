@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { signOut } from "next-auth/react";
 import { useState, useEffect, useRef } from "react";
+import { Session } from "next-auth";
 
 type SessionUser = {
   name?: string | null;
@@ -14,7 +15,7 @@ type SessionUser = {
 };
 
 type LandingPageProps = {
-  session: { user: SessionUser } | null;
+  session: Session | null;
 };
 
 // Animated stars background

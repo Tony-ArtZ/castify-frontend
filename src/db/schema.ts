@@ -7,6 +7,7 @@ import {
   integer,
   vector,
   customType,
+  index,
 } from "drizzle-orm/pg-core";
 import { AdapterAccount } from "next-auth/adapters";
 
