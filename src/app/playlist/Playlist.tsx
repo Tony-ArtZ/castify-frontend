@@ -9,6 +9,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { InferSelectModel } from "drizzle-orm";
 import { podcasts } from "@/db/schema";
 import { getNewRecommendations } from "@/actions/getRecommendations";
+import { getPodcastFromQuery } from "@/actions/getPodcast";
+import { Input } from "@/components/ui/input";
+import { Search } from "lucide-react";
 
 // Define podcast type based on expected schema
 type Podcast = InferSelectModel<typeof podcasts>;
@@ -125,8 +128,40 @@ const PlaylistPage = ({ fetchedPodcasts }: { fetchedPodcasts: Podcast[] }) => {
   const [recommendedPodcasts, setRecommendedPodcasts] = useState<Podcast[]>([]);
   const router = useRouter();
 
+  // Search related state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Podcast[] | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+
   const handlePodcastClick = (url: string) => {
     router.push(`/player/${url}`);
+  };
+
+  // Function to handle search
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!searchQuery.trim()) {
+      setSearchResults(null);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      const results = await getPodcastFromQuery(searchQuery);
+      setSearchResults(results || []);
+    } catch (error) {
+      console.error("Error searching podcasts:", error);
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // Function to clear search results
+  const clearSearch = () => {
+    setSearchQuery("");
+    setSearchResults(null);
   };
 
   // Function to get recommended podcasts (empty for now)
@@ -211,6 +246,247 @@ const PlaylistPage = ({ fetchedPodcasts }: { fetchedPodcasts: Podcast[] }) => {
 
       <ScrollArea className="h-screen">
         <div className="min-h-screen p-8 max-w-7xl mx-auto relative z-10">
+          {/* Search bar */}
+          <motion.div
+            className="max-w-lg mx-auto mb-12"
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            <form onSubmit={handleSearch} className="relative">
+              <div className="relative">
+                <Input
+                  type="text"
+                  placeholder="Search podcasts..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10 pr-4 py-3 bg-purple-900/20 border-purple-700/30 text-purple-100 placeholder-purple-300/50 focus:ring-purple-500 focus:border-purple-500 backdrop-blur-md"
+                />
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Search className="h-4 w-4 text-purple-400" />
+                </div>
+              </div>
+              <div className="mt-2 flex justify-end gap-2">
+                {searchQuery && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-purple-300 hover:text-purple-100"
+                    onClick={clearSearch}
+                  >
+                    Clear
+                  </Button>
+                )}
+                <Button
+                  type="submit"
+                  variant="secondary"
+                  size="sm"
+                  className="bg-purple-800/70 hover:bg-purple-700 text-purple-100 border border-purple-600/30"
+                  disabled={isSearching}
+                >
+                  {isSearching ? "Searching..." : "Search"}
+                </Button>
+              </div>
+            </form>
+          </motion.div>
+
+          {/* Search Results */}
+          <AnimatePresence>
+            {searchResults !== null && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.5 }}
+                className="mb-16"
+              >
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-2xl font-semibold text-purple-100">
+                    Search Results
+                    <span className="text-sm text-purple-400 ml-3">
+                      {searchResults.length}{" "}
+                      {searchResults.length === 1 ? "podcast" : "podcasts"}{" "}
+                      found
+                    </span>
+                  </h2>
+                  <Button
+                    variant="link"
+                    className="text-purple-400 hover:text-purple-300"
+                    onClick={clearSearch}
+                  >
+                    Back to all podcasts
+                  </Button>
+                </div>
+
+                {searchResults.length === 0 ? (
+                  <div className="text-center py-12 bg-purple-900/10 border border-purple-800/20 rounded-xl backdrop-blur-sm">
+                    <div className="inline-flex justify-center items-center w-16 h-16 rounded-full bg-purple-900/30 mb-4">
+                      <Search className="h-8 w-8 text-purple-400/70" />
+                    </div>
+                    <h3 className="text-xl font-medium text-purple-200">
+                      No podcasts found
+                    </h3>
+                    <p className="text-purple-400 mt-2">
+                      Try different keywords or browse recommendations
+                    </p>
+                  </div>
+                ) : (
+                  <motion.div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                    {searchResults.map((podcast, index) => (
+                      <motion.div
+                        key={podcast.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.4, delay: index * 0.1 }}
+                        whileHover={{ scale: 1.03 }}
+                        className="h-full"
+                        onHoverStart={() => setHoverIndex(index)}
+                        onHoverEnd={() => setHoverIndex(null)}
+                      >
+                        <Card
+                          className="h-full overflow-hidden border-none bg-gradient-to-br from-purple-950/40 to-indigo-950/40 backdrop-blur-md relative transition-all duration-300 hover:shadow-[0_0_25px_rgba(168,85,247,0.2)]"
+                          onClick={() => handlePodcastClick(podcast.id)}
+                        >
+                          <CardContent className="p-0">
+                            <div className="relative h-48 w-full overflow-hidden">
+                              <motion.div
+                                className="bg-gradient-to-r from-purple-800 to-indigo-900 h-full w-full flex items-center justify-center relative"
+                                whileHover={{ scale: 1.05 }}
+                                transition={{ duration: 0.4 }}
+                              >
+                                {/* Background circles */}
+                                <motion.div
+                                  className="absolute h-[300%] w-[100%] top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%] rounded-full bg-purple-700/30"
+                                  animate={{
+                                    scale: [1, 1.1, 1],
+                                    rotate: [0, 360],
+                                  }}
+                                  transition={{
+                                    duration: 20,
+                                    repeat: Infinity,
+                                    ease: "linear",
+                                  }}
+                                />
+                                <motion.div
+                                  className="absolute h-[200%] w-[70%] top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%] rounded-full bg-indigo-700/20"
+                                  animate={{
+                                    scale: [1, 1.2, 1],
+                                    rotate: [360, 0],
+                                  }}
+                                  transition={{
+                                    duration: 15,
+                                    repeat: Infinity,
+                                    ease: "linear",
+                                  }}
+                                />
+
+                                <motion.span
+                                  className="text-5xl font-bold text-white/90 relative z-10"
+                                  animate={
+                                    hoverIndex === index
+                                      ? { scale: [1, 1.2, 1] }
+                                      : {}
+                                  }
+                                  transition={{ duration: 0.6 }}
+                                >
+                                  {podcast.name.charAt(0)}
+                                </motion.span>
+                              </motion.div>
+
+                              <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-purple-950/80" />
+
+                              <motion.div
+                                className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0"
+                                whileHover={{ opacity: 1 }}
+                              >
+                                <Button
+                                  variant="secondary"
+                                  className="bg-white/10 hover:bg-white/20 text-white border border-white/20 backdrop-blur-md gap-2 shadow-[0_0_15px_rgba(255,255,255,0.3)]"
+                                >
+                                  <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    width="16"
+                                    height="16"
+                                    fill="currentColor"
+                                    viewBox="0 0 16 16"
+                                  >
+                                    <path d="M11.596 8.697l-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393z" />
+                                  </svg>
+                                  Play
+                                </Button>
+                              </motion.div>
+
+                              <MusicVisualizer active={hoverIndex === index} />
+                            </div>
+
+                            <div className="p-6">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="px-2 py-0.5 bg-purple-800/30 text-purple-300 text-xs rounded-full border border-purple-700/30">
+                                  Search Result
+                                </span>
+                              </div>
+                              <motion.h2
+                                className="text-xl font-semibold mb-2 text-purple-50"
+                                animate={
+                                  hoverIndex === index
+                                    ? { color: "#f0abfc" }
+                                    : {}
+                                }
+                                transition={{ duration: 0.3 }}
+                              >
+                                {podcast.name}
+                              </motion.h2>
+                              {podcast.description && (
+                                <p className="text-purple-200/80 text-sm line-clamp-2 mb-3">
+                                  {podcast.description}
+                                </p>
+                              )}
+
+                              <div className="flex justify-between items-center mt-4 pt-4 border-t border-purple-700/20">
+                                <p className="text-purple-300/70 text-xs">
+                                  {new Date(
+                                    podcast.createdAt
+                                  ).toLocaleDateString(undefined, {
+                                    year: "numeric",
+                                    month: "short",
+                                    day: "numeric",
+                                  })}
+                                </p>
+                                <div className="flex space-x-1">
+                                  {[1, 2, 3].map((dot) => (
+                                    <motion.div
+                                      key={dot}
+                                      className="w-1.5 h-1.5 rounded-full bg-purple-400/60"
+                                      animate={
+                                        hoverIndex === index
+                                          ? {
+                                              scale: [1, 1.5, 1],
+                                              opacity: [0.6, 1, 0.6],
+                                            }
+                                          : {}
+                                      }
+                                      transition={{
+                                        duration: 0.8,
+                                        repeat:
+                                          hoverIndex === index ? Infinity : 0,
+                                        delay: dot * 0.2,
+                                      }}
+                                    />
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </motion.div>
+                    ))}
+                  </motion.div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           <motion.h1
             className="text-5xl font-bold mb-3 text-center"
             initial={{ opacity: 0, y: -30 }}

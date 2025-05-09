@@ -2,13 +2,31 @@
 
 import { db } from "@/db";
 import { podcastAudio, podcasts, users } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, like, or } from "drizzle-orm";
 
 export const getPodcast = async (userId: string) => {
   const podcast = await db
     .select()
     .from(podcasts)
     .where(eq(podcasts.generatedById, userId))
+    .execute();
+
+  if (podcast.length === 0) {
+    return null;
+  }
+  return podcast;
+};
+
+export const getPodcastFromQuery = async (query: string) => {
+  const podcast = await db
+    .select()
+    .from(podcasts)
+    .where(
+      or(
+        like(podcasts.name, `%${query}%`),
+        like(podcasts.description, `%${query}%`)
+      )
+    )
     .execute();
 
   if (podcast.length === 0) {
